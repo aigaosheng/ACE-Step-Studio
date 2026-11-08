@@ -133,6 +133,10 @@ export const VisualizerView: React.FC<{
     if (engine === 'milkdrop') {
       let cancelled = false;
       let frame = 0;
+      // a lost GPU context must not stop the loop: holding the context with
+      // preventDefault lets the same one resume on restore, so the picture
+      // comes back instead of the window staying frozen on its last frame
+      const onContextLost = (event: Event) => event.preventDefault();
       void Promise.all([loadButterchurn(), loadMilkdropPresets()]).then(([butterchurn, list]) => {
         if (cancelled || !canvas.current || !box.current) return;
         const width = box.current.clientWidth || 640;
@@ -141,6 +145,7 @@ export const VisualizerView: React.FC<{
         const ratio = window.devicePixelRatio || 1;
         canvas.current.width = Math.round(width * ratio);
         canvas.current.height = Math.round(height * ratio);
+        canvas.current.addEventListener('webglcontextlost', onContextLost);
         const drawer = butterchurn.createVisualizer(context, canvas.current, { width, height, pixelRatio: ratio, textureRatio: 1 });
         drawer.connectAudio(source);
         milkdrop.current = drawer;
@@ -148,13 +153,20 @@ export const VisualizerView: React.FC<{
         setPresets(list);
         setReady(true);
         const draw = () => {
-          drawer.render();
+          try {
+            // a frame that fails - a context being lost, a bad preset - must not
+            // stop the loop, or the visualiser freezes on its last frame
+            drawer.render();
+          } catch (error) {
+            console.error('[visualizer] a frame failed:', error);
+          }
           frame = requestAnimationFrame(draw);
         };
         frame = requestAnimationFrame(draw);
       }).catch((error) => setProblem(error instanceof Error ? error.message : String(error)));
       return () => {
         cancelled = true;
+        canvas.current?.removeEventListener('webglcontextlost', onContextLost);
         cancelAnimationFrame(frame);
         if (milkdrop.current) milkdrop.current.disconnectAudio(source);
         milkdrop.current = null;

@@ -1356,10 +1356,12 @@ export const VideoGeneratorModal: React.FC<VideoGeneratorModalProps> = ({ isOpen
 
   // --- RENDER ENGINE ---
   const renderLoop = () => {
-    if (!canvasRef.current || !analyserRef.current || !song) {
-        animationRef.current = requestAnimationFrame(renderLoop);
-        return;
-    }
+    // The next frame is scheduled up front, so a frame that throws - a broken
+    // effect, a missing image - or the early returns below drop that one frame
+    // but leave the loop alive; scheduling it last instead left the preview
+    // frozen on its last frame, where it never recovered
+    animationRef.current = requestAnimationFrame(renderLoop);
+    if (!canvasRef.current || !analyserRef.current || !song) return;
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
@@ -1797,8 +1799,6 @@ export const VideoGeneratorModal: React.FC<VideoGeneratorModalProps> = ({ isOpen
         ctx.fillRect(0, 0, width, barHeight);
         ctx.fillRect(0, height - barHeight, width, barHeight);
     }
-
-    animationRef.current = requestAnimationFrame(renderLoop);
   };
 
   // --- DRAWING FUNCTIONS ---
