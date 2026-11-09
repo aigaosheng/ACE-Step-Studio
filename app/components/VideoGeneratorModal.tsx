@@ -848,9 +848,10 @@ export const VideoGeneratorModal: React.FC<VideoGeneratorModalProps> = ({ isOpen
     const currentTexts = textLayersRef.current;
     const capturedFrames: string[] = [];
     // One GPU encoder for the whole export, or none and the JPEG path below.
-    const hardware: HardwareEncoder | null = await createHardwareEncoder({ width: outWidth, height: outHeight, fps }).catch(() => null);
+    let hardware: HardwareEncoder | null = await createHardwareEncoder({ width: outWidth, height: outHeight, fps }).catch(() => null);
 
-    for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
+    let frameIndex = 0;
+    while (frameIndex < totalFrames) {
       const time = frameIndex / fps;
       // a frame between two analysed ones (fps above the audio's block rate) shows the one before it
       let analysedFrame = frameIndex;
@@ -1213,17 +1214,28 @@ export const VideoGeneratorModal: React.FC<VideoGeneratorModalProps> = ({ isOpen
       // trip below is the fallback, and it is what made this slow.
       if (outputContext) outputContext.drawImage(canvas, 0, 0, outWidth, outHeight);
       if (hardware) {
-        await hardware.encode(output, frameIndex);
+        try {
+          await hardware.encode(output, frameIndex);
+        } catch (error) {
+          console.warn('The video encoder stopped responding; retrying with the software encoder.', error);
+          hardware.close();
+          hardware = null;
+          capturedFrames.length = 0;
+          frameIndex = 0;
+          setExportProgress(15);
+          continue;
+        }
       } else {
         const frameData = output.toDataURL('image/jpeg', 0.85);
         capturedFrames.push(frameData.split(',')[1]);
       }
 
       // Update progress + yield to prevent Chrome "page not responding" alert
-      if (frameIndex % 30 === 0) {
-        setExportProgress(15 + Math.round((frameIndex / totalFrames) * 55));
+      if (frameIndex % 5 === 0 || frameIndex === totalFrames - 1) {
+        setExportProgress(15 + ((frameIndex + 1) / totalFrames) * 55);
         await new Promise(r => setTimeout(r, 0));
       }
+      frameIndex++;
     }
 
     setExportStage('encoding');
